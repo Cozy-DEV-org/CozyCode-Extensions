@@ -1,0 +1,17 @@
+{
+  "id": "cozy.roblox-sync",
+  "name": "Roblox Sync",
+  "version": "1.0.0",
+  "description": "Bi-directional sync with Roblox Studio: mirror every script (including scripts nested in Models/Parts) to disk and back, with a live instance tree and conflict resolution. Needs Node.js and the CozySync Studio plugin.",
+  "publisher": "cozy",
+  "icon": "icon.svg",
+  "main": "index.html",
+  "contributes": {
+    "views": [
+      { "id": "cozy.robloxSync.view", "title": "Roblox Sync", "icon": "$(sync)", "location": "right" }
+    ],
+    "commands": [
+      { "command": "cozy.robloxSync.reveal", "title": "Show Roblox Sync", "category": "Roblox Sync" }
+    ]
+  }
+}

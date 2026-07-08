@@ -1,0 +1,139 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <!-- Roblox Sync panel. Spawns the Node sync server (server.js) via cozy.process and
+       talks to it over stdio; the server bridges the Studio plugin (HTTP) and the files
+       on disk. Renders the live instance tree + status + conflict resolution. -->
+  <style>
+    body { font: 12px system-ui, sans-serif; color: #ccc; margin: 0; padding: 0; }
+    #bar { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid #333; position: sticky; top: 0; background: #1e1e1e; }
+    #dot { width: 8px; height: 8px; border-radius: 50%; background: #888; flex-shrink: 0; }
+    #dot.on { background: #3fb950; } #dot.off { background: #888; }
+    #status { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    button { background: #0e639c; color: #fff; border: 0; border-radius: 3px; padding: 4px 9px; cursor: pointer; font-size: 12px; }
+    button:hover { background: #1177bb; }
+    #tree { padding: 4px 0 40px; }
+    .node { display: flex; align-items: center; gap: 4px; padding: 1px 10px 1px 0; cursor: default; white-space: nowrap; }
+    .node:hover { background: #2a2d2e; }
+    .node .tw { width: 12px; text-align: center; color: #888; cursor: pointer; }
+    .node .nm { overflow: hidden; text-overflow: ellipsis; }
+    .node .cn { color: #6a737d; font-size: 10px; margin-left: 4px; }
+    .node.script .nm { color: #9cdcfe; }
+    .node.open-file { color: #4ec9b0; }
+    #conflict { display: none; margin: 8px 10px; padding: 8px; border: 1px solid #d29922; border-radius: 4px; background: #2d2410; }
+    #conflict.show { display: block; }
+    #conflict .row { display: flex; gap: 6px; margin-top: 6px; }
+    .hint { color: #888; padding: 8px 10px; }
+    a { color: #4ea1f3; cursor: pointer; }
+  </style>
+  <script>
+    if (cozy.view.isHost) {
+      cozy.commands.register('cozy.robloxSync.reveal', () => cozy.window.showMessage('Open the Roblox Sync panel on the right (Ctrl+Alt+B).'));
+    }
+  </script>
+</head>
+<body>
+  <div id="bar">
+    <span id="dot" class="off"></span>
+    <span id="status">Starting sync server...</span>
+    <button id="kill" title="Kill the sync server process" style="background:#6c2022">Kill</button>
+    <button id="restart" title="Restart the sync server">Restart</button>
+  </div>
+  <div id="conflict">
+    <div><b>Conflict</b> — files changed on disk while Studio was disconnected:</div>
+    <div id="conflict-files" style="color:#d29922;margin-top:4px"></div>
+    <div class="row">
+      <button id="keep-disk">Keep Disk</button>
+      <button id="keep-studio" style="background:#6c4a10">Keep Studio</button>
+    </div>
+  </div>
+  <div id="tree"></div>
+
+  <script>
+    if (!cozy.view.isHost) (async function () {
+      const PORT = 34872;
+      const $ = s => document.querySelector(s);
+      const dot = $('#dot'), statusEl = $('#status'), treeEl = $('#tree');
+      let proc = null, buf = new Uint8Array(0);
+      const dec = new TextDecoder();
+
+      function setStatus(text, on) { statusEl.textContent = text; dot.className = on ? 'on' : 'off'; }
+
+      // -------- render the Studio instance tree (VisualPreview) --------
+      const collapsed = {};
+      function pathOf(parts) { return parts.join('.'); }
+      function render(tree) {
+        treeEl.innerHTML = '';
+        if (!tree || !tree.length) { treeEl.innerHTML = '<div class="hint">No scripts synced yet. Click the CozySync button in Studio.</div>'; return; }
+        const draw = (node, parts, depth) => {
+          const p = pathOf(parts.concat(node.name));
+          const row = document.createElement('div');
+          const isScript = /Script$/.test(node.className);
+          row.className = 'node' + (isScript ? ' script' : '');
+          row.style.paddingLeft = (depth * 12 + 8) + 'px';
+          const kids = node.children || [];
+          const canExpand = kids.length > 0;
+          const open = !collapsed[p];
+          row.innerHTML = `<span class="tw">${canExpand ? (open ? '▾' : '▸') : ''}</span>` +
+            `<span class="codicon"></span><span class="nm">${node.name}</span><span class="cn">${node.className}</span>`;
+          if (canExpand) row.querySelector('.tw').onclick = () => { collapsed[p] = open; render(lastTree); };
+          if (isScript) row.title = 'Instance: ' + p + '  (' + node.className + ')';
+          treeEl.appendChild(row);
+          if (open) for (const c of kids) draw(c, parts.concat(node.name), depth + 1);
+        };
+        for (const svc of tree) draw(svc, [], 0);
+      }
+      let lastTree = null;
+
+      // -------- server stdio: newline-delimited JSON events --------
+      function onData(bytes) {
+        const nb = new Uint8Array(buf.length + bytes.length); nb.set(buf); nb.set(bytes, buf.length); buf = nb;
+        for (; ;) {
+          let nl = -1; for (let i = 0; i < buf.length; i++) if (buf[i] === 10) { nl = i; break; }
+          if (nl < 0) break;
+          const line = dec.decode(buf.slice(0, nl)); buf = buf.slice(nl + 1);
+          if (!line.trim()) continue;
+          let ev; try { ev = JSON.parse(line); } catch (e) { continue; }
+          handle(ev);
+        }
+      }
+      function handle(ev) {
+        if (ev.event === 'ready') setStatus('Waiting for Studio on :' + ev.port, false);
+        else if (ev.event === 'status') setStatus('Synced · ' + ev.files + ' script(s) · :' + PORT, ev.connected);
+        else if (ev.event === 'tree') { lastTree = ev.tree; render(ev.tree); cozy.workspace.refresh(); } // show synced files in the Explorer
+        else if (ev.event === 'conflict') showConflict(ev.files);
+        else if (ev.event === 'conflictResolved') $('#conflict').classList.remove('show');
+        else if (ev.event === 'fatal') setStatus('Server error: ' + ev.msg, false);
+      }
+
+      function showConflict(files) {
+        $('#conflict-files').textContent = files.join(', ');
+        $('#conflict').classList.add('show');
+      }
+      const send = o => { try { proc && proc.write(JSON.stringify(o) + '\n'); } catch (e) { } };
+      $('#keep-disk').onclick = () => send({ cmd: 'resolve', side: 'disk' });
+      $('#keep-studio').onclick = () => send({ cmd: 'resolve', side: 'studio' });
+
+      // -------- spawn the Node sync server --------
+      async function boot() {
+        const root = await cozy.workspace.root();
+        if (!root) { setStatus('Open a folder first.', false); return; }
+        // free the port if a previous (orphaned) server is still holding it
+        try { await fetch('http://127.0.0.1:' + PORT + '/shutdown', { method: 'POST' }); await new Promise(r => setTimeout(r, 400)); } catch (e) { }
+        const extDir = await cozy.fs.extensionPath();
+        const serverJs = extDir + '\\server.js';
+        try {
+          proc = await cozy.process.spawn('node', [serverJs, root, String(PORT)], root);
+          proc.onData(onData);
+          proc.onExit(() => setStatus('Server stopped. Click Restart.', false));
+          setStatus('Starting sync server...', false);
+        } catch (e) { setStatus('Failed to start (is Node.js on PATH?): ' + e, false); }
+      }
+      $('#kill').onclick = () => { try { proc && proc.kill(); } catch (e) { } setStatus('Killed. Click Restart.', false); };
+      $('#restart').onclick = async () => { try { proc && proc.kill(); } catch (e) { } buf = new Uint8Array(0); setStatus('Restarting...', false); await boot(); };
+      await boot();
+    })();
+  </script>
+</body>
+</html>

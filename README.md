@@ -3,6 +3,26 @@
 Native CozyCode extensions (`.cext`). Import via the Extensions view → **Import
 Extension (.cext / .zip)**, or Command Palette → *Extensions: Install from File*.
 
+An extension is a folder with `cozy.json` + a web entry, packaged as a `.cext`
+(renamed `.zip`). It runs in a sandboxed iframe and talks to CozyCode only through
+the injected `cozy` API — it can't touch the editor core. See
+[`app/docs/Writing-Extensions.md`](../app/docs/Writing-Extensions.md) to build your own.
+
+## Roblox Studio sync (bi-directional)
+
+| Extension | What it does |
+|---|---|
+| **roblox-sync** | Mirrors **every script** in a Roblox place to disk and back — including scripts nested many levels deep in Models / Parts. Live instance tree (VisualPreview), new files on disk become Instances in Studio, external edits auto-reload, and a conflict prompt when disk and Studio diverge. |
+
+- Two halves: the **CozyCode extension** (this `.cext`, a right-side panel) + the
+  **CozySync Studio plugin** in [`roblox-sync/plugin/`](roblox-sync/plugin/). Install the
+  plugin into Studio (`%LOCALAPPDATA%\Roblox\Plugins\`, or *Save to Roblox* as a local
+  plugin) and enable **Game Settings → Security → Allow HTTP Requests**.
+- The extension spawns a small **Node.js** HTTP server (`server.js`, built-ins only) that
+  bridges the Studio plugin and the files under `src/`. Requires **Node.js on PATH**.
+- **Only script `.Source` is synced** — Parts, geometry, and properties are never touched.
+- Full setup + workflow: [`roblox-sync/README.md`](roblox-sync/README.md).
+
 ## Language servers (real LSP — autocomplete, hover, signatures)
 
 | Extension | Server | Use for |
