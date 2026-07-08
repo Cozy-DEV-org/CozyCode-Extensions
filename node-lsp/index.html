@@ -1,0 +1,70 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <!-- JS/TS LSP host. Runs typescript-language-server (a Node LSP built on
+       microsoft/vscode-languageserver-node) on the user's Node.js. Installs it via
+       npm into the extension data dir on first use, then feeds real JS/TS/JSX/TSX
+       completion + hover into the editor via cozy.languages. -->
+  <script src="lsp.js"></script>
+  <script>
+    (async function () {
+      if (!cozy.view.isHost) { document.body.textContent = 'JS/TS LSP (background)'; return; }
+
+      const LANGS = ['javascript', 'typescript', 'javascriptreact', 'typescriptreact'];
+      let lsp = null;
+      for (const L of LANGS) {
+        cozy.languages.registerCompletionProvider(L, p => (lsp ? lsp.completion(p) : []), item => (lsp ? lsp.resolve(item) : item));
+        cozy.languages.registerHoverProvider(L, p => (lsp ? lsp.hover(p) : null));
+      }
+
+      // spawn a process and resolve when it exits (used for `npm install`)
+      function runToExit(program, args, cwd) {
+        return new Promise(async resolve => {
+          const pr = await cozy.process.spawn(program, args, cwd);
+          if (!pr || !pr.id) return resolve(false);
+          pr.onExit(() => resolve(true));
+        });
+      }
+
+      async function boot() {
+        const dir = await cozy.fs.dataDir();
+        const cli = dir + '\\node_modules\\typescript-language-server\\lib\\cli.mjs';
+
+        if (!(await cozy.fs.exists(cli))) {
+          const ok = await cozy.window.showMessage(
+            'JS/TS LSP needs to install its server via npm (typescript + typescript-language-server, ~50 MB). Install now?',
+            'Install', 'Cancel');
+          if (ok !== 0) { cozy.window.showMessage('JS/TS LSP: not installed.'); return; }
+
+          await cozy.fs.writeFile(dir + '\\package.json', JSON.stringify({
+            name: 'cozy-node-lsp-runtime', private: true,
+            dependencies: { 'typescript': '5.9.2', 'typescript-language-server': '4.4.0' }
+          }));
+          cozy.window.showMessage('JS/TS LSP: installing (~30-60s)...');
+          await runToExit('cmd', ['/c', 'npm', 'install', '--no-audit', '--no-fund', '--loglevel=error'], dir);
+          if (!(await cozy.fs.exists(cli))) {
+            cozy.window.showMessage('JS/TS LSP: npm install failed. Make sure Node.js + npm are on PATH.');
+            return;
+          }
+        }
+
+        const root = await cozy.workspace.root();
+        lsp = createLsp({
+          exe: 'node', args: [cli, '--stdio'], cwd: root || dir,
+          rootUri: root ? pathToUri(root) : null, rootPath: root || null,
+          settings: {}
+        });
+        await lsp.start();
+        cozy.window.showMessage('JS/TS LSP ready.');
+      }
+
+      cozy.commands.register('cozy.nodeLsp.restart', async () => { lsp = null; try { await boot(); } catch (e) { cozy.window.showMessage('JS/TS LSP restart failed: ' + e); } });
+
+      try { await boot(); }
+      catch (e) { cozy.window.showMessage('JS/TS LSP failed: ' + e); }
+    })();
+  </script>
+</head>
+<body></body>
+</html>

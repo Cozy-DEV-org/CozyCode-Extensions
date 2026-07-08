@@ -1,0 +1,14 @@
+{
+  "id": "cozy.node-lsp",
+  "name": "JavaScript / TypeScript LSP",
+  "version": "1.0.0",
+  "description": "Full JS/TS/JSX/TSX language server (typescript-language-server, built on microsoft/vscode-languageserver-node): autocomplete, hover, signatures. Installs via npm on first use (needs Node.js on PATH).",
+  "publisher": "cozy",
+  "icon": "icon.svg",
+  "main": "index.html",
+  "contributes": {
+    "commands": [
+      { "command": "cozy.nodeLsp.restart", "title": "Restart JS/TS Language Server", "category": "JS/TS LSP" }
+    ]
+  }
+}

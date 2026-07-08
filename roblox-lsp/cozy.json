@@ -1,0 +1,14 @@
+{
+  "id": "cozy.roblox-lsp",
+  "name": "Roblox LSP",
+  "version": "1.0.0",
+  "description": "Roblox Luau/Lua language server (NightrainsRbx/RobloxLsp): autocomplete for the full Roblox API, hover, signatures. Downloads on first use. Enable this OR Lua LSP, not both.",
+  "publisher": "cozy",
+  "icon": "icon.svg",
+  "main": "index.html",
+  "contributes": {
+    "commands": [
+      { "command": "cozy.robloxLsp.restart", "title": "Restart Roblox Language Server", "category": "Roblox LSP" }
+    ]
+  }
+}

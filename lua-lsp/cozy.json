@@ -1,0 +1,14 @@
+{
+  "id": "cozy.lua-lsp",
+  "name": "Lua LSP",
+  "version": "1.0.0",
+  "description": "Full Lua language server (LuaLS/lua-language-server): autocomplete, hover, signatures. Downloads the server on first use.",
+  "publisher": "cozy",
+  "icon": "icon.svg",
+  "main": "index.html",
+  "contributes": {
+    "commands": [
+      { "command": "cozy.luaLsp.restart", "title": "Restart Lua Language Server", "category": "Lua LSP" }
+    ]
+  }
+}

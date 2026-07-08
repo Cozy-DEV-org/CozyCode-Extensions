@@ -1,0 +1,60 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <!-- Lua LSP host: headless activation. Downloads LuaLS on first use, spawns it,
+       and surfaces its completions/hover into the editor via cozy.languages. -->
+  <script src="lsp.js"></script>
+  <script>
+    (async function () {
+      if (!cozy.view.isHost) { document.body.textContent = 'Lua LSP (background)'; return; }
+
+      const VER = '3.18.2';
+      const URL = 'https://github.com/LuaLS/lua-language-server/releases/download/' + VER +
+        '/lua-language-server-' + VER + '-win32-x64.zip';
+
+      let lsp = null;
+      // Register providers immediately; they no-op until the server is ready, so the
+      // editor never blocks waiting on a download.
+      cozy.languages.registerCompletionProvider('lua', p => (lsp ? lsp.completion(p) : []), item => (lsp ? lsp.resolve(item) : item));
+      cozy.languages.registerHoverProvider('lua', p => (lsp ? lsp.hover(p) : null));
+
+      async function boot() {
+        const dir = await cozy.fs.dataDir();
+        const serverDir = dir + '\\server';
+        const exe = serverDir + '\\bin\\lua-language-server.exe';
+
+        if (!(await cozy.fs.exists(exe))) {
+          cozy.window.showMessage('Lua LSP: downloading language server (~4 MB)...');
+          const zip = dir + '\\dl.zip';
+          await cozy.fs.download(URL, zip);
+          await cozy.fs.unzip(zip, serverDir);
+        }
+        const root = await cozy.workspace.root();
+        lsp = createLsp({
+          exe, args: [], cwd: serverDir,
+          rootUri: root ? pathToUri(root) : null, rootPath: root || null,
+          settings: {
+            Lua: {
+              runtime: { version: 'Lua 5.4' },
+              telemetry: { enable: false },
+              diagnostics: { enable: true, globals: [] },
+              workspace: { maxPreload: 5000, preloadFileSize: 1000, checkThirdParty: false },
+              completion: { callSnippet: 'Both', keywordSnippet: 'Both', showWord: 'Fallback' },
+              hint: { enable: true }
+            }
+          }
+        });
+        await lsp.start();
+        cozy.window.showMessage('Lua LSP ready.');
+      }
+
+      cozy.commands.register('cozy.luaLsp.restart', async () => { lsp = null; try { await boot(); } catch (e) { cozy.window.showMessage('Lua LSP restart failed: ' + e); } });
+
+      try { await boot(); }
+      catch (e) { cozy.window.showMessage('Lua LSP failed: ' + e); }
+    })();
+  </script>
+</head>
+<body></body>
+</html>

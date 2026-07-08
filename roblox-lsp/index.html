@@ -1,0 +1,63 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <!-- Roblox LSP host: headless activation. Downloads RobloxLsp on first use and runs
+       its bundled server (server/bin/Windows/lua-language-server.exe -E server/main.lua),
+       surfacing the full Roblox API completion/hover into the editor. -->
+  <script src="lsp.js"></script>
+  <script>
+    (async function () {
+      if (!cozy.view.isHost) { document.body.textContent = 'Roblox LSP (background)'; return; }
+
+      const VER = '1.6.8';
+      const URL = 'https://github.com/NightrainsRbx/RobloxLsp/releases/download/v' + VER +
+        '/robloxlsp-' + VER + '.zip';
+
+      let lsp = null;
+      // Roblox scripts are .lua (and .luau); register both.
+      const provideC = p => (lsp ? lsp.completion(p) : []);
+      const provideH = p => (lsp ? lsp.hover(p) : null);
+      const resolveC = item => (lsp ? lsp.resolve(item) : item);
+      cozy.languages.registerCompletionProvider('lua', provideC, resolveC);
+      cozy.languages.registerCompletionProvider('luau', provideC, resolveC);
+      cozy.languages.registerHoverProvider('lua', provideH);
+      cozy.languages.registerHoverProvider('luau', provideH);
+
+      async function boot() {
+        const dir = await cozy.fs.dataDir();
+        const root = dir + '\\rblx';                     // extract root (holds server/, client/, ...)
+        const srv = root + '\\server';
+        const exe = srv + '\\bin\\Windows\\lua-language-server.exe';
+        const mainLua = srv + '\\main.lua';
+
+        if (!(await cozy.fs.exists(exe))) {
+          cozy.window.showMessage('Roblox LSP: downloading language server (~4 MB)...');
+          const zip = dir + '\\dl.zip';
+          await cozy.fs.download(URL, zip);
+          await cozy.fs.unzip(zip, root);
+        }
+        const ws = await cozy.workspace.root();
+        lsp = createLsp({
+          exe,
+          args: ['-E', mainLua, '--develop=false', '--dbgport=0', '--dbgwait=false'],
+          cwd: srv,
+          rootUri: ws ? pathToUri(ws) : null, rootPath: ws || null,
+          settings: {
+            Lua: { telemetry: { enable: false }, completion: { callSnippet: 'Both', keywordSnippet: 'Both' } },
+            robloxLsp: { completion: { enable: true }, diagnostics: { enable: true } }
+          }
+        });
+        await lsp.start();
+        cozy.window.showMessage('Roblox LSP ready.');
+      }
+
+      cozy.commands.register('cozy.robloxLsp.restart', async () => { lsp = null; try { await boot(); } catch (e) { cozy.window.showMessage('Roblox LSP restart failed: ' + e); } });
+
+      try { await boot(); }
+      catch (e) { cozy.window.showMessage('Roblox LSP failed: ' + e); }
+    })();
+  </script>
+</head>
+<body></body>
+</html>
